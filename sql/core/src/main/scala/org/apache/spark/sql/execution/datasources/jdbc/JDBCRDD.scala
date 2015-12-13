@@ -20,6 +20,9 @@ package org.apache.spark.sql.execution.datasources.jdbc
 import java.sql.{Connection, Date, DriverManager, ResultSet, ResultSetMetaData, SQLException, Timestamp}
 import java.util.Properties
 
+import org.apache.hadoop.security.UserGroupInformation
+import org.apache.spark.deploy.SparkHadoopUtil
+
 import scala.util.control.NonFatal
 
 import org.apache.commons.lang3.StringUtils
@@ -187,7 +190,22 @@ private[sql] object JDBCRDD extends Logging {
         case e: ClassNotFoundException =>
           logWarning(s"Couldn't find class $driver", e)
       }
-      DriverManager.getConnection(url, properties)
+
+      if(properties.contains("kerberosUser"))
+        {
+          val userAccount = properties.getProperty("kerberosUser")
+          val keytabFile = properties.getProperty("kerberosKeytab", s"$userAccount.keytab")
+          import java.security.PrivilegedAction
+
+          UserGroupInformation
+            .loginUserFromKeytabAndReturnUGI(userAccount, keytabFile)
+            .doAs(new PrivilegedAction[Connection] {
+              override def run(): Connection = DriverManager.getConnection(url, properties)
+            })
+
+        } else {
+          DriverManager.getConnection(url, properties)
+      }
     }
   }
 
